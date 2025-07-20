@@ -48,7 +48,6 @@ def setup_and_teardown(redis_connection):
 
 
 def test_full_auth_flow():
-    """The main integration test. It verifies the entire process."""
     username = "testuser"
     
     # ACT: Call the main function that interacts with both services.
