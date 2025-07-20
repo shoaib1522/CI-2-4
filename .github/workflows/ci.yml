@@ -1,0 +1,47 @@
+# .github/workflows/ci.yml
+
+name: Multi-Service Integration Test
+
+on: [push, pull_request]
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    
+    # The 'services' block spins up Docker containers alongside your job.
+    # These services are accessible on a shared network.
+    services:
+      # We name our service 'redis'. This becomes its hostname.
+      redis:
+        # Use the official Redis image from Docker Hub.
+        image: redis:latest
+        # Expose the Redis port to the job runner.
+        ports:
+          - 6379:6379
+        # A health check is critical. It ensures the job steps don't start
+        # until Redis is fully booted and ready to accept connections.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Integration Tests
+        # We set the REDIS_HOST environment variable here.
+        # Our test script will now connect to the 'redis' service container
+        # instead of 'localhost'.
+        run: pytest
+        env:
+          REDIS_HOST: redis
