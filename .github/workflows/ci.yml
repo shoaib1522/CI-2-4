@@ -9,10 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
-      # We give our service a name, 'redis'.
       redis:
         image: redis:latest
         ports:
+          # This line is the key: It maps the container's port 6379
+          # to port 6379 on the runner's localhost interface.
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
@@ -36,8 +37,7 @@ jobs:
         run: pytest
         env:
           # --- THIS IS THE FIX ---
-          # We are now explicitly telling our tests the IP address of the 'redis' service.
-          # The syntax `job.services.<service_name>.network_aliases[0]` or simply the service name
-          # is the modern way. For maximum compatibility, we reference the host directly.
-          # The hostname IS the service ID. Let's ensure the Python code handles this.
-          REDIS_HOST: redis
+          # We will force the connection to go through localhost (127.0.0.1),
+          # which is guaranteed to work because of the port mapping above.
+          # We are no longer relying on the 'redis' hostname.
+          REDIS_HOST: 127.0.0.1
