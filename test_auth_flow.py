@@ -2,7 +2,6 @@
 
 import pytest
 import os
-import sqlite3
 import redis
 from auth_service import (
     create_user_and_session,
@@ -11,47 +10,50 @@ from auth_service import (
     DB_NAME
 )
 
-# Determine the Redis host. In GitHub Actions, it's the service name ('redis').
-# Locally, it's 'localhost'. We use an environment variable for this.
+# This is the key. It reads the environment variable set by the CI workflow.
+# If the variable is not set (like in a local run), it defaults to 'localhost'.
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = 6379
+
+@pytest.fixture(scope="module", autouse=True)
+def redis_connection():
+    """A module-scoped fixture to check Redis connection once."""
+    try:
+        r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
+        r.ping()
+        print(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+        return r
+    except redis.exceptions.ConnectionError as e:
+        pytest.fail(f"Could not connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Error: {e}")
 
 @pytest.fixture(autouse=True)
-def setup_and_teardown():
+def setup_and_teardown(redis_connection):
     """A fixture to ensure a clean state before and after each test."""
     # --- Setup ---
-    # Delete the SQLite DB file if it exists.
     if os.path.exists(DB_NAME):
         os.remove(DB_NAME)
 
-    # --- Teardown ---
+    # Clean up keys from previous runs, just in case
+    for key in redis_connection.scan_iter("session:*"):
+        redis_connection.delete(key)
+    
     yield  # This is where the test runs.
     
-    # After the test, clean up the database file again.
+    # --- Teardown ---
     if os.path.exists(DB_NAME):
         os.remove(DB_NAME)
-    
-    # Also, clean up the key in Redis to not affect other tests.
-    try:
-        r = redis.Redis(host=REDIS_HOST, port=6379)
-        r.delete("session:testuser")
-    except redis.exceptions.ConnectionError:
-        pass # Ignore if Redis isn't running (e.g., in a simple local run)
+
+    for key in redis_connection.scan_iter("session:*"):
+        redis_connection.delete(key)
+
 
 def test_full_auth_flow():
-    """
-    The main integration test. It verifies the entire process.
-    """
-    # 1. ARRANGE: Define our test data.
+    """The main integration test. It verifies the entire process."""
     username = "testuser"
     
-    # 2. ACT: Call the main function that interacts with both services.
-    # We pass the REDIS_HOST so the function knows where to connect.
-    create_user_and_session(username, redis_host=REDIS_HOST)
+    # ACT: Call the main function that interacts with both services.
+    create_user_and_session(username, redis_host=REDIS_HOST, redis_port=REDIS_PORT)
 
-    # 3. ASSERT: Verify the outcome in each service independently.
-    
-    # Check if the user was correctly written to the SQLite database.
-    assert user_exists_in_db(username) == True, "User should exist in the database."
-    
-    # Check if the session was correctly created in the Redis cache.
-    assert session_exists_in_redis(username, redis_host=REDIS_HOST) == True, "Session should exist in Redis."
+    # ASSERT: Verify the outcome in each service independently.
+    assert user_exists_in_db(username), "User should exist in the database."
+    assert session_exists_in_redis(username, redis_host=REDIS_HOST, redis_port=REDIS_PORT), "Session should exist in Redis."
